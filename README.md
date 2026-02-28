@@ -42,6 +42,7 @@ If you right click your source in triggers and click test triggers, you should h
 in my githup repo, open the overlay.html file and copy all the code there. Now in your file explorer create a text document, you do this by right clicking and empty space > new > text document. at this stage paste all the code into the document > file > save as> name it overlay.html, now its important to change the 'save as type' to all files, and not as a text document. save this file and it should now be openable as a browser: 
 
 <img width="427" height="45" alt="image" src="https://github.com/user-attachments/assets/f4184379-3dc5-471c-81b8-fb3ea584c866" />
+
 when you open this browser it should look something like this: 
 
 <img width="953" height="808" alt="image" src="https://github.com/user-attachments/assets/004850f7-4ab5-4919-bdc1-24f8c11882fc" />
