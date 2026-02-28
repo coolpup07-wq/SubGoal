@@ -1,0 +1,450 @@
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slim Sub Goal Bar</title>
+    <!-- using canvas-confetti for advanced physics and large counts -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    <!-- Streamer.bot Client for WebSocket communication -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@streamerbot/client/dist/streamerbot-client.js"></script>
+    <style>
+        :root {
+            --primary-color: #9147ff;
+            --secondary-color: rgba(20, 20, 25, 0.8);
+            --text-color: #ffffff;
+            --progress-color: #5a3da8;
+            --highlight-color: #bf94ff;
+            --empty-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background: transparent;
+        }
+        
+        .sub-goal-container {
+            width: 400px;
+            background: var(--secondary-color);
+            border-radius: 4px;
+            padding: 12px 15px;
+            position: relative;
+            border-left: 3px solid var(--primary-color);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-height: 48px;
+        }
+        
+        .goal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            gap: 15px;
+        }
+        
+        .goal-title {
+            color: var(--text-color);
+            font-size: 15px;
+            font-weight: 600;
+            margin: 0;
+        }
+        
+        .goal-progress {
+            color: var(--highlight-color);
+            font-size: 13px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        
+        .progress-container {
+            height: 10px;
+            background: var(--empty-color);
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary-color), var(--progress-color));
+            border-radius: 3px 1.5px 1.5px 3px;
+            width: 2%;
+            min-width: 4px;
+            transition: width 0.5s ease;
+            position: relative;
+        }
+        
+        .progress-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(
+                90deg,
+                rgba(255, 255, 255, 0.1) 0%,
+                rgba(255, 255, 255, 0.3) 50%,
+                rgba(255, 255, 255, 0.1) 100%
+            );
+            animation: shine 2s infinite;
+        }
+        
+        .celebration {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 10;
+        }
+        
+        @keyframes shine {
+            0% {
+                transform: translateX(-100%);
+            }
+            100% {
+                transform: translateX(100%);
+            }
+        }
+        
+        @keyframes confetti-fall {
+            0% {
+                transform: translateY(-100vh) rotate(0deg);
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(100vh) rotate(360deg);
+                opacity: 0;
+            }
+        }
+        
+        /* div-based confetti no longer used */
+        .confetti {
+            display: none;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+        
+        .low-progress {
+            animation: pulse 2s infinite;
+        }
+    </style>
+</head>
+<body>
+
+<div class="sub-goal-container">
+    <div class="goal-header">
+        <h3 class="goal-title">SUBSCRIBER GOAL</h3>
+        <div class="goal-progress"><span id="current-subs">0</span>/<span id="goal-subs">50</span></div>
+    </div>
+    
+    <div class="progress-container">
+        <div class="progress-bar" id="progress-bar"></div>
+    </div>
+</div>
+
+<div class="celebration" id="celebration"></div>
+
+<!-- debug controls injected via JS when ?debug=1 -->
+<div id="debug-panel" style="position:fixed;bottom:10px;left:10px;z-index:1000;display:none;background:rgba(0,0,0,0.5);padding:8px;border-radius:6px;font-size:12px;color:white;">
+    <button id="dbg-add10" style="margin:2px;">+10 Subs</button>
+    <button id="dbg-set51" style="margin:2px;">Set 51</button>
+    <button id="dbg-reset" style="margin:2px;">Reset</button>
+</div>
+
+<script>
+    const progressBar = document.getElementById('progress-bar');
+    const currentSubsEl = document.getElementById('current-subs');
+    const goalSubsEl = document.getElementById('goal-subs');
+    const celebrationEl = document.getElementById('celebration');
+    
+    // Initialize Streamer.bot Client helper.
+    // the library exposes a global constructor named StreamerbotClient.
+    // we won't create an instance here; the `init` function does that.
+        // Configuration
+    // default values can be overridden by localStorage
+    let config = {
+        goal: 50,
+        // start at 0 subs - will be updated by events or localStorage
+        current: 0,
+        minVisibleWidth: 2
+    };
+    
+    // Clear old config format (v1 compatibility)
+    try {
+        const stored = localStorage.getItem('subCounterConfig');
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            // If current is unexpectedly high (old format), clear it
+            if (parsed.current === 20 && parsed.goal === 50) {
+                localStorage.removeItem('subCounterConfig');
+            }
+        }
+    } catch (e) {
+        console.warn('could not check config', e);
+    }
+
+    function saveConfig() {
+        try {
+            localStorage.setItem('subCounterConfig', JSON.stringify(config));
+        } catch (e) {
+            console.warn('could not save config', e);
+        }
+    }
+
+    function loadConfig() {
+        try {
+            const stored = localStorage.getItem('subCounterConfig');
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                // keep goal/minVisibleWidth defaults if missing
+                config.goal = parsed.goal ?? config.goal;
+                // only accept a saved current count if it's a positive number
+                // this prevents an old zero value from wiping out the new default
+                if (typeof parsed.current === 'number' && parsed.current > 0) {
+                    config.current = parsed.current;
+                }
+                config.minVisibleWidth = parsed.minVisibleWidth ?? config.minVisibleWidth;
+            }
+        } catch (e) {
+            console.warn('could not load config', e);
+        }
+        console.log('✓ Config loaded:', config);
+    }
+    
+    // Initialize the widget
+    function init() {
+        loadConfig();
+        // Listen for StreamElements/Twitch events
+        window.addEventListener('onEventReceived', function(event) {
+            if (!event.detail.event) return;
+            
+            const listener = event.detail.listener;
+            const data = event.detail.event;
+            
+            // Handle subscribers
+            if (listener === 'subscriber-latest' || listener.includes('subscriber') || listener.includes('member')) {
+                if (data.bulkGifted) return;
+                
+                const amount = data.amount || 1;
+                // add subs all at once
+                config.current += amount;
+                updateProgress();
+                saveConfig();
+                
+                // if multiple subs, fire small bursts quickly in succession
+                for (let i = 0; i < amount; i++) {
+                    setTimeout(celebrateSub, i * 100); // 100ms apart
+                }
+                
+                // also trigger goal celebration after the last small burst if goal reached
+                if (config.current >= config.goal) {
+                    setTimeout(celebrateGoal, amount * 100 + 200);
+                }
+            }
+        });
+        
+        // Use Streamer.bot client API instead of plain DOM events.
+        // create a client instance and subscribe to General.Custom events.
+        let client = null;
+        if (typeof window.StreamerbotClient !== 'undefined') {
+            client = new window.StreamerbotClient();
+        } else {
+            console.warn('Streamer.bot client library not loaded');
+        }
+
+        async function setupClient() {
+            if (!client) return;
+            try {
+                await client.connect();
+                console.log('Streamer.bot client connected');
+
+                // automatically subscribes when using client.on
+                await client.on('General.Custom', data => {
+                    console.log('General.Custom received via client.on', data);
+                    if (data.type === 'newSub') {
+                        console.log('Calling handleNewSub with', data.amount);
+                        handleNewSub(data.amount);
+                    }
+                    else if (data.type === 'updateSubs') {
+                        console.log('Received updateSubs event', data);
+                        config.current = data.current ?? config.current;
+                        config.goal = data.goal ?? config.goal;
+                        updateProgress();
+                        saveConfig();
+                        if (config.current >= config.goal) {
+                            celebrateGoal();
+                        }
+                    }
+                    else if (data.type === 'showConfetti') {
+                        // manual trigger from Streamer.bot action
+                        console.log('showConfetti event received');
+                        celebrateSub();
+                    }
+                });
+
+                console.log('✓ Subscribed to General.Custom via Streamer.bot client');
+            } catch (err) {
+                console.error('Streamer.bot client setup failed', err);
+            }
+        }
+        setupClient();
+
+        goalSubsEl.textContent = config.goal;
+        updateProgress();
+        // persist after load
+        saveConfig();
+        // play a confetti burst on load so you can see it immediately
+        celebrateSub();
+
+        // fire a confetti burst every time the source becomes visible
+        // (OBS toggling the browser source triggers visibilitychange)
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                // you might optionally guard to only run when not first load
+                celebrateSub();
+            }
+        });
+
+        // expose a convenience function for external callers (console / C#)
+        window.showConfetti = celebrateSub; // call showConfetti() to pop
+    }
+    
+    function updateProgress() {
+        let percentage = (config.current / config.goal) * 100;
+        
+        if (percentage > 0 && percentage < config.minVisibleWidth) {
+            percentage = config.minVisibleWidth;
+        } else if (percentage === 0) {
+            percentage = 1;
+        }
+        
+        progressBar.style.width = `${percentage}%`;
+        currentSubsEl.textContent = config.current;
+        
+        if (percentage < 5) {
+            progressBar.classList.add('low-progress');
+        } else {
+            progressBar.classList.remove('low-progress');
+        }
+    }
+    
+    function getRandomColor() {
+        const colors = [
+            '#9147ff', '#bf94ff', '#ff47b3', '#47ffb3', 
+            '#ffd747', '#47a1ff', '#ff6347'
+        ];
+        return colors[Math.floor(Math.random() * colors.length)];
+    }
+    
+    // Small celebration per sub using canvas-confetti
+    function celebrateSub() {
+        progressBar.classList.add('pulse');
+        setTimeout(() => progressBar.classList.remove('pulse'), 600);
+        confetti({
+            particleCount: 300,
+            spread: 100,
+            origin: { x: 0.5, y: 0.7 }, // start lower on screen
+            colors: ['#9147ff','#bf94ff','#ff47b3','#47ffb3','#ffd747','#47a1ff','#ff6347'],
+            ticks: 600,
+            gravity: 0.1, // slower fall
+        });
+    }
+    
+    function incrementGoal() {
+        config.goal += 25;
+        saveConfig();
+        updateProgress();
+    }
+    
+    // Big celebration when goal reached – full canvas-confetti burst
+    function celebrateGoal() {
+        confetti({
+            particleCount: 1500,
+            spread: 160,
+            startVelocity: 40,
+            ticks: 800,
+            gravity: 0.15,
+            origin: { x: 0.5, y: 0.75 }, // center lowered
+            colors: ['#9147ff','#bf94ff','#ff47b3','#47ffb3','#ffd747','#47a1ff','#ff6347'],
+            scalar: 1.2,
+        });
+        // additional volley
+        setTimeout(() => {
+            confetti({
+                particleCount: 1500,
+                spread: 180,
+                startVelocity: 50,
+                ticks: 800,
+                gravity: 0.2,
+                origin: { x: 0.5, y: 0.75 },
+                colors: ['#9147ff','#bf94ff','#ff47b3','#47ffb3','#ffd747','#47a1ff','#ff6347'],
+                scalar: 1.2,
+            });
+        }, 500);
+        
+        // Increment goal by 25 after celebration
+        setTimeout(() => {
+            incrementGoal();
+        }, 1500);
+    }
+    
+    // Manual testing functions (can be called from browser console if the will wills it)
+    window.handleNewSub = function(amount = 1) {
+        console.log('handleNewSub invoked with amount', amount);
+        config.current += amount;
+        updateProgress();
+        saveConfig();
+        
+        for (let i = 0; i < amount; i++) {
+            setTimeout(celebrateSub, i * 100);
+        }
+        
+        if (config.current >= config.goal) {
+            setTimeout(celebrateGoal, amount * 100 + 200);
+        }
+    };
+    
+    // directly set the current subscriber count (useful for testing/configuring)
+    window.setSubs = function(value) {
+        config.current = value;
+        updateProgress();
+        saveConfig();
+        if (config.current >= config.goal) {
+            celebrateGoal();
+        }
+    };
+    
+    window.resetCounter = function() {
+        config.current = 0;
+        updateProgress();
+        saveConfig();
+    };
+
+    window.addEventListener('load', () => {
+        init();
+        // Show debug panel if ?debug=1 in URL
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('debug') === '1') {
+            const panel = document.getElementById('debug-panel');
+            panel.style.display = 'block';
+            document.getElementById('dbg-add10').addEventListener('click', () => handleNewSub(10));
+            document.getElementById('dbg-set51').addEventListener('click', () => setSubs(51));
+            document.getElementById('dbg-reset').addEventListener('click', () => resetCounter());
+        }
+    });
+</script>
+</body>
+</html>
