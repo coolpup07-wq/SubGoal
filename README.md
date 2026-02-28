@@ -58,7 +58,10 @@ Now paste in the webpage directory you copied earlier, this will act as an overl
 
 <img width="907" height="777" alt="image" src="https://github.com/user-attachments/assets/b7199ce5-fb8a-4550-8d44-01279a7f4ad5" />
 
-hit Ok, now if you make the source visible youll see confetti and the subgoal and everything.
+hit Ok, now if you make the source visible youll see confetti and the subgoal and everything. make sure u have it scale to window so that it doesnt look bummy: 
+
+<img width="410" height="262" alt="image" src="https://github.com/user-attachments/assets/2d6361ea-385b-43ee-bf09-951c7aec7ce2" />
+
 
 <img width="1153" height="836" alt="image" src="https://github.com/user-attachments/assets/7b2765fd-7e41-4033-87ec-32bda0a412ca" />
 
